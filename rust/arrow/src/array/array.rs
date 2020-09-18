@@ -862,7 +862,7 @@ impl From<Vec<Option<bool>>> for BooleanArray {
 
 /// Constructs a `PrimitiveArray` from an array data reference.
 impl<T: ArrowPrimitiveType> From<ArrayDataRef> for PrimitiveArray<T> {
-    default fn from(data: ArrayDataRef) -> Self {
+    fn from(data: ArrayDataRef) -> Self {
         assert_eq!(
             data.buffers().len(),
             1,
