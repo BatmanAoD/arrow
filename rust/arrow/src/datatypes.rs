@@ -711,7 +711,33 @@ make_numeric_type!(DurationMicrosecondType, i64, i64x8, m64x8);
 make_numeric_type!(DurationNanosecondType, i64, i64x8, m64x8);
 
 /// A subtype of primitive type that represents temporal values.
-pub trait ArrowTemporalType: ArrowPrimitiveType {}
+pub trait ArrowTemporalType: ArrowPrimitiveType {
+    // XXX split these
+    fn format_item(item: &Self::Native, f: &mut fmt::Formatter) -> fmt::Result {
+        write!(f, "XXX temp: formatting time: {:?}", item)
+        /*
+        match self.get_data_type() {
+            DataType::Date32(_) | DataType::Date64(_) => {
+                match array.value_as_date(index) {  // XXX shouldn't be part of array
+                    Some(date) => write!(f, "{:?}", date),
+                    None => write!(f, "null"),
+                }
+            }
+            DataType::Time32(_) | DataType::Time64(_) => {
+                match array.value_as_time(index) {
+                    Some(time) => write!(f, "{:?}", time),
+                    None => write!(f, "null"),
+                }
+            }
+            DataType::Timestamp(_, _) => match array.value_as_datetime(index) {
+                Some(datetime) => write!(f, "{:?}", datetime),
+                None => write!(f, "null"),
+            },
+            _ => write!(f, "null"),
+        })?;
+        */
+    }
+}
 
 impl ArrowTemporalType for TimestampSecondType {}
 impl ArrowTemporalType for TimestampMillisecondType {}

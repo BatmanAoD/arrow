@@ -671,25 +671,7 @@ where
 {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         write!(f, "PrimitiveArray<{:?}>\n[\n", T::get_data_type())?;
-        print_long_array(self, f, |array, index, f| match T::get_data_type() {
-            DataType::Date32(_) | DataType::Date64(_) => {
-                match array.value_as_date(index) {
-                    Some(date) => write!(f, "{:?}", date),
-                    None => write!(f, "null"),
-                }
-            }
-            DataType::Time32(_) | DataType::Time64(_) => {
-                match array.value_as_time(index) {
-                    Some(time) => write!(f, "{:?}", time),
-                    None => write!(f, "null"),
-                }
-            }
-            DataType::Timestamp(_, _) => match array.value_as_datetime(index) {
-                Some(datetime) => write!(f, "{:?}", datetime),
-                None => write!(f, "null"),
-            },
-            _ => write!(f, "null"),
-        })?;
+        print_long_array_items(self.iter(), f, <T as ArrowTemporalType>::format_item)?;
         write!(f, "]")
     }
 }
@@ -715,9 +697,7 @@ impl PrimitiveArray<BooleanType> {
 impl fmt::Debug for PrimitiveArray<BooleanType> {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         write!(f, "PrimitiveArray<{:?}>\n[\n", BooleanType::get_data_type())?;
-        print_long_array(self, f, |array, index, f| {
-            fmt::Debug::fmt(&array.value(index), f)
-        })?;
+        print_long_array_items(self.iter(), f, BooleanType::format_item)?;
         write!(f, "]")
     }
 }
@@ -1247,9 +1227,7 @@ where
 impl fmt::Debug for ListArray {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         write!(f, "ListArray\n[\n")?;
-        print_long_array(self, f, |array, index, f| {
-            fmt::Debug::fmt(&array.value(index), f)
-        })?;
+        print_long_array_items(self.iter(), f, fmt::Debug::fmt)?;
         write!(f, "]")
     }
 }
@@ -1257,9 +1235,7 @@ impl fmt::Debug for ListArray {
 impl fmt::Debug for LargeListArray {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         write!(f, "LargeListArray\n[\n")?;
-        print_long_array(self, f, |array, index, f| {
-            fmt::Debug::fmt(&array.value(index), f)
-        })?;
+        print_long_array_items(self.iter(), f, fmt::Debug::fmt)?;
         write!(f, "]")
     }
 }
@@ -1377,9 +1353,7 @@ impl Array for FixedSizeListArray {
 impl fmt::Debug for FixedSizeListArray {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         write!(f, "FixedSizeListArray<{}>\n[\n", self.value_length())?;
-        print_long_array(self, f, |array, index, f| {
-            fmt::Debug::fmt(&array.value(index), f)
-        })?;
+        print_long_array_items(self.iter(), f, fmt::Debug::fmt)?;
         write!(f, "]")
     }
 }
@@ -1940,9 +1914,8 @@ impl From<FixedSizeListArray> for FixedSizeBinaryArray {
 impl fmt::Debug for BinaryArray {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         write!(f, "BinaryArray\n[\n")?;
-        print_long_array(self, f, |array, index, f| {
-            fmt::Debug::fmt(&array.value(index), f)
-        })?;
+        // XXX appropriate formatter?
+        print_long_array_items(self.iter(), f, fmt::Debug::fmt)?;
         write!(f, "]")
     }
 }
@@ -1950,9 +1923,7 @@ impl fmt::Debug for BinaryArray {
 impl fmt::Debug for LargeBinaryArray {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         write!(f, "LargeBinaryArray\n[\n")?;
-        print_long_array(self, f, |array, index, f| {
-            fmt::Debug::fmt(&array.value(index), f)
-        })?;
+        print_long_array_items(self.iter(), f, fmt::Debug::fmt)?;
         write!(f, "]")
     }
 }
@@ -1960,9 +1931,7 @@ impl fmt::Debug for LargeBinaryArray {
 impl fmt::Debug for StringArray {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         write!(f, "StringArray\n[\n")?;
-        print_long_array(self, f, |array, index, f| {
-            fmt::Debug::fmt(&array.value(index), f)
-        })?;
+        print_long_array_items(self.iter(), f, fmt::Debug::fmt)?;
         write!(f, "]")
     }
 }
@@ -1970,9 +1939,7 @@ impl fmt::Debug for StringArray {
 impl fmt::Debug for LargeStringArray {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         write!(f, "LargeStringArray\n[\n")?;
-        print_long_array(self, f, |array, index, f| {
-            fmt::Debug::fmt(&array.value(index), f)
-        })?;
+        print_long_array_items(self.iter(), f, fmt::Debug::fmt)?;
         write!(f, "]")
     }
 }
@@ -1980,9 +1947,7 @@ impl fmt::Debug for LargeStringArray {
 impl fmt::Debug for FixedSizeBinaryArray {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         write!(f, "FixedSizeBinaryArray<{}>\n[\n", self.value_length())?;
-        print_long_array(self, f, |array, index, f| {
-            fmt::Debug::fmt(&array.value(index), f)
-        })?;
+        print_long_array_items(self.iter(), f, fmt::Debug::fmt)?;
         write!(f, "]")
     }
 }
