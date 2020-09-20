@@ -221,6 +221,11 @@ pub trait ArrowPrimitiveType: 'static {
         Default::default()
     }
 
+    /// Formats an instance of the native type.
+    fn format_item(item: &Self::Native, f: &mut fmt::Formatter) -> fmt::Result {
+        write!(f, "{:?}", item)
+    }
+
     /// Returns a value offset from the given pointer by the given index. The default
     /// implementation (used for all non-boolean types) is simply equivalent to pointer-arithmetic.
     /// # Safety

@@ -19,7 +19,7 @@ use std::any::Any;
 use std::convert::From;
 use std::fmt;
 use std::io::Write;
-use std::iter::{FromIterator, IntoIterator};
+use std::iter::{ExactSizeIterator, FromIterator, IntoIterator};
 use std::mem;
 use std::sync::Arc;
 
@@ -399,6 +399,52 @@ pub struct PrimitiveArray<T: ArrowPrimitiveType> {
     raw_values: RawPtrBox<T::Native>,
 }
 
+struct PrimitiveArrayIter<'a, T: ArrowPrimitiveType> {
+    array: &'a PrimitiveArray<T>,
+    index: usize
+}
+
+impl<'a, T: ArrowPrimitiveType> Copy for PrimitiveArrayIter<'a, T> { }
+
+impl<'a, T: ArrowPrimitiveType> Clone for PrimitiveArrayIter<'a, T> {
+    fn clone(&self) -> Self {
+        PrimitiveArrayIter{ ..*self }
+    }
+}
+
+impl<'a, T: ArrowPrimitiveType> Iterator for PrimitiveArrayIter<'a, T> {
+    type Item = Option<T::Native>;
+
+    fn next(&mut self) -> Option<Self::Item> {
+        if self.index >= self.len() {
+            None
+        }
+        else if self.array.is_null(self.index) {
+            Some(None)
+        }
+        else {
+            let value = self.array.value(self.index);
+            self.index += 1;
+            Some(Some(value))
+        }
+    }
+}
+
+impl<'a, T: ArrowPrimitiveType> ExactSizeIterator for PrimitiveArrayIter<'a, T> {
+    fn len(&self) -> usize {
+        self.array.data.len
+    }
+}
+
+impl<T: ArrowPrimitiveType> PrimitiveArray<T> {
+    fn iter(&self) -> PrimitiveArrayIter<T> {
+        PrimitiveArrayIter {
+            array: self,
+            index: 0
+        }
+    }
+}
+
 /// Common operations for primitive types, including numeric types and boolean type.
 pub trait PrimitiveArrayOps<T: ArrowPrimitiveType> {
     /// Returns a `Buffer` holding all the values of this array.
@@ -608,19 +654,7 @@ where
 impl<T: ArrowPrimitiveType> fmt::Debug for PrimitiveArray<T> {
     default fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         write!(f, "PrimitiveArray<{:?}>\n[\n", T::get_data_type())?;
-        print_long_array(self, f, |array, index, f| {
-            fmt::Debug::fmt(&array.value(index), f)
-        })?;
-        write!(f, "]")
-    }
-}
-
-impl<T: ArrowNumericType> fmt::Debug for PrimitiveArray<T> {
-    default fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        write!(f, "PrimitiveArray<{:?}>\n[\n", T::get_data_type())?;
-        print_long_array(self, f, |array, index, f| {
-            fmt::Debug::fmt(&array.value(index), f)
-        })?;
+        print_long_array_items(self.iter(), f, T::format_item)?;
         write!(f, "]")
     }
 }
@@ -1138,6 +1172,38 @@ impl Array for LargeListArray {
             + self.values().get_array_memory_size()
             + mem::size_of_val(self)
     }
+}
+
+// Helper function for printing potentially long arrays.
+fn print_long_array_items<I, T, F>(iter: I, f: &mut fmt::Formatter, printer: F) -> fmt::Result
+where 
+    I: ExactSizeIterator<Item = Option<T>> + Clone,
+    F: Fn(&T, &mut fmt::Formatter) -> fmt::Result + Copy,
+{
+    let length = iter.len();
+    if length > 20 {
+        print_items(iter.clone().take(10), f, printer)?;
+        writeln!(f, "  ...{} elements...,", length - 20)?;
+    }
+    print_items(iter.skip(length - 10), f, printer)
+}
+
+fn print_items<I, T, F>(iter: I, f: &mut fmt::Formatter, printer: F) -> fmt::Result
+where 
+    I: Iterator<Item = Option<T>>,
+    F: Fn(&T, &mut fmt::Formatter) -> fmt::Result + Copy,
+{
+    for elem in iter {
+        match elem {
+            None => writeln!(f, "  null,")?,
+            Some(item) => {
+                write!(f, "  ")?;
+                printer(&item, f)?;
+                writeln!(f, ",")?;
+            }
+        }
+    }
+    return Ok(())
 }
 
 // Helper function for printing potentially long arrays.
