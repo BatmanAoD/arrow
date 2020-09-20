@@ -671,7 +671,8 @@ where
 {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         write!(f, "PrimitiveArray<{:?}>\n[\n", T::get_data_type())?;
-        print_long_array_items(self.iter(), f, <T as ArrowTemporalType>::format_item)?;
+        // XXX communicate temporal type info!
+        print_long_array_items(self.iter(), f)?;
         write!(f, "]")
     }
 }
@@ -1161,20 +1162,20 @@ impl Array for LargeListArray {
 }
 
 // Helper function for printing potentially long arrays.
-fn print_long_array_items<I, T, F>(iter: I, f: &mut fmt::Formatter, printer: F) -> fmt::Result
+fn print_long_array_items<I, T: ArrowFormat, F>(iter: I, f: &mut fmt::Formatter) -> fmt::Result
 where 
     I: ExactSizeIterator<Item = Option<T>> + Clone,
     F: Fn(&T, &mut fmt::Formatter) -> fmt::Result + Copy,
 {
     let length = iter.len();
     if length > 20 {
-        print_items(iter.clone().take(10), f, printer)?;
+        print_items(iter.clone().take(10), f)?;
         writeln!(f, "  ...{} elements...,", length - 20)?;
     }
-    print_items(iter.skip(length - 10), f, printer)
+    print_items(iter.skip(length - 10), f)
 }
 
-fn print_items<I, T, F>(iter: I, f: &mut fmt::Formatter, printer: F) -> fmt::Result
+fn print_items<I, T: ArrowFormat, F>(iter: I, f: &mut fmt::Formatter, printer: F) -> fmt::Result
 where 
     I: Iterator<Item = Option<T>>,
     F: Fn(&T, &mut fmt::Formatter) -> fmt::Result + Copy,
@@ -1184,7 +1185,7 @@ where
             None => writeln!(f, "  null,")?,
             Some(item) => {
                 write!(f, "  ")?;
-                printer(&item, f)?;
+                item.fmt(f)?;
                 writeln!(f, ",")?;
             }
         }
@@ -1195,7 +1196,7 @@ where
 impl fmt::Debug for ListArray {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         write!(f, "ListArray\n[\n")?;
-        print_long_array_items(self.iter(), f, fmt::Debug::fmt)?;
+        print_long_array_items(self.iter(), f)?;
         write!(f, "]")
     }
 }
@@ -1203,7 +1204,7 @@ impl fmt::Debug for ListArray {
 impl fmt::Debug for LargeListArray {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         write!(f, "LargeListArray\n[\n")?;
-        print_long_array_items(self.iter(), f, fmt::Debug::fmt)?;
+        print_long_array_items(self.iter(), f)?;
         write!(f, "]")
     }
 }
