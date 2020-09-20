@@ -20,6 +20,7 @@ use std::convert::From;
 use std::fmt;
 use std::io::Write;
 use std::iter::{ExactSizeIterator, FromIterator, IntoIterator};
+use std::marker::PhantomData;   // XXX temporary, hopefully
 use std::mem;
 use std::sync::Arc;
 
@@ -399,20 +400,34 @@ pub struct PrimitiveArray<T: ArrowPrimitiveType> {
     raw_values: RawPtrBox<T::Native>,
 }
 
-struct PrimitiveArrayIter<'a, T: ArrowPrimitiveType> {
-    array: &'a PrimitiveArray<T>,
-    index: usize
+impl<T: ArrowPrimitiveType> PrimitiveArray<T> {
+    fn iter(&self) -> PrimitiveArrayIter<T, PrimitiveArray<T>> {
+        PrimitiveArrayIter {
+            array: self,
+            index: 0,
+            phantom: Default::default()
+        }
+    }
 }
 
-impl<'a, T: ArrowPrimitiveType> Copy for PrimitiveArrayIter<'a, T> { }
+struct PrimitiveArrayIter<'a, T: ArrowPrimitiveType, A: Array + PrimitiveArrayOps<T>> {
+    array: &'a A,
+    index: usize,
 
-impl<'a, T: ArrowPrimitiveType> Clone for PrimitiveArrayIter<'a, T> {
+    // XXX why is this necessary? Without it, I get `paramter T is never used`,
+    // even though it's part of the bounds on `A`.
+    phantom: PhantomData<&'a T>
+}
+
+impl<'a, T: ArrowPrimitiveType, A: Array + PrimitiveArrayOps<T>> Copy for PrimitiveArrayIter<'a, T, A> { }
+
+impl<'a, T: ArrowPrimitiveType, A: Array + PrimitiveArrayOps<T>> Clone for PrimitiveArrayIter<'a, T, A> {
     fn clone(&self) -> Self {
         PrimitiveArrayIter{ ..*self }
     }
 }
 
-impl<'a, T: ArrowPrimitiveType> Iterator for PrimitiveArrayIter<'a, T> {
+impl<'a, T: ArrowPrimitiveType, A: Array + PrimitiveArrayOps<T>> Iterator for PrimitiveArrayIter<'a, T, A> {
     type Item = Option<T::Native>;
 
     fn next(&mut self) -> Option<Self::Item> {
@@ -430,18 +445,9 @@ impl<'a, T: ArrowPrimitiveType> Iterator for PrimitiveArrayIter<'a, T> {
     }
 }
 
-impl<'a, T: ArrowPrimitiveType> ExactSizeIterator for PrimitiveArrayIter<'a, T> {
+impl<'a, T: ArrowPrimitiveType, A: Array + PrimitiveArrayOps<T>> ExactSizeIterator for PrimitiveArrayIter<'a, T, A> {
     fn len(&self) -> usize {
-        self.array.data.len
-    }
-}
-
-impl<T: ArrowPrimitiveType> PrimitiveArray<T> {
-    fn iter(&self) -> PrimitiveArrayIter<T> {
-        PrimitiveArrayIter {
-            array: self,
-            index: 0
-        }
+        self.array.data_ref().len
     }
 }
 
