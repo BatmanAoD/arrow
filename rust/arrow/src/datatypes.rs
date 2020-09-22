@@ -25,6 +25,7 @@
 use std::collections::HashMap;
 use std::default::Default;
 use std::fmt;
+use std::marker::PhantomData;
 use std::mem::size_of;
 #[cfg(feature = "simd")]
 use std::ops::{Add, Div, Mul, Sub};
@@ -221,11 +222,6 @@ pub trait ArrowPrimitiveType: 'static {
         Default::default()
     }
 
-    /// Formats an instance of the native type.
-    fn format_item(item: &Self::Native, f: &mut fmt::Formatter) -> fmt::Result {
-        write!(f, "{:?}", item)
-    }
-
     /// Returns a value offset from the given pointer by the given index. The default
     /// implementation (used for all non-boolean types) is simply equivalent to pointer-arithmetic.
     /// # Safety
@@ -233,6 +229,39 @@ pub trait ArrowPrimitiveType: 'static {
     /// must be less than the size of the array.
     unsafe fn index(raw_ptr: *const Self::Native, i: usize) -> Self::Native {
         *(raw_ptr.add(i))
+    }
+}
+
+pub(crate) trait ArrowFormat: Sized {
+    type Value: Sized;
+
+    /// Formats an instance of the native type.
+    fn format_item(item: &Self::Value, f: &mut fmt::Formatter) -> fmt::Result;
+    
+    /// Wraps an instance of the native type in a struct that preserves the type
+    /// information of this ArrowFormat type.
+    fn formattable(data: Self::Value) -> FormattableInstance<Self> {
+        FormattableInstance {
+            data,
+            phantom: PhantomData{},
+        }
+    }
+}
+
+// XXX this is basically a workaround for the fact that `Int8Type`,
+// `BooleanType`, and other `ArrowPrimitiveType` structs don't actually contain
+// an instance of the `Native` data.
+// Can we just change that instead?
+pub(crate) struct FormattableInstance<AF: ArrowFormat> {
+    pub(crate) data: AF::Value,
+    phantom: PhantomData<AF>,
+}
+
+impl<APT: ArrowPrimitiveType> ArrowFormat for APT {
+    type Value = APT::Native;
+
+    fn format_item(item: &Self::Value, f: &mut fmt::Formatter) -> fmt::Result {
+        write!(f, "{:?}", item)
     }
 }
 

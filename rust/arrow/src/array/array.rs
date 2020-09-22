@@ -20,7 +20,6 @@ use std::convert::From;
 use std::fmt;
 use std::io::Write;
 use std::iter::{ExactSizeIterator, FromIterator, IntoIterator};
-use std::marker::PhantomData;   // XXX temporary, hopefully
 use std::mem;
 use std::sync::Arc;
 
@@ -401,34 +400,31 @@ pub struct PrimitiveArray<T: ArrowPrimitiveType> {
 }
 
 impl<T: ArrowPrimitiveType> PrimitiveArray<T> {
-    fn iter(&self) -> PrimitiveArrayIter<T, PrimitiveArray<T>> {
+    fn iter(&self) -> PrimitiveArrayIter<T> {
         PrimitiveArrayIter {
             array: self,
             index: 0,
-            phantom: Default::default()
         }
     }
 }
 
-struct PrimitiveArrayIter<'a, T: ArrowPrimitiveType, A: Array + PrimitiveArrayOps<T>> {
-    array: &'a A,
-    index: usize,
+trait ArrowArrayIter<T: ArrowFormat>: ExactSizeIterator<Item = Option<FormattableInstance<T>>> + Clone {}
 
-    // XXX why is this necessary? Without it, I get `paramter T is never used`,
-    // even though it's part of the bounds on `A`.
-    phantom: PhantomData<&'a T>
+struct PrimitiveArrayIter<'a, T: ArrowPrimitiveType> {
+    array: &'a PrimitiveArray<T>,
+    index: usize,
 }
 
-impl<'a, T: ArrowPrimitiveType, A: Array + PrimitiveArrayOps<T>> Copy for PrimitiveArrayIter<'a, T, A> { }
+impl<'a, T: ArrowPrimitiveType> Copy for PrimitiveArrayIter<'a, T> { }
 
-impl<'a, T: ArrowPrimitiveType, A: Array + PrimitiveArrayOps<T>> Clone for PrimitiveArrayIter<'a, T, A> {
+impl<'a, T: ArrowPrimitiveType> Clone for PrimitiveArrayIter<'a, T> {
     fn clone(&self) -> Self {
         PrimitiveArrayIter{ ..*self }
     }
 }
 
-impl<'a, T: ArrowPrimitiveType, A: Array + PrimitiveArrayOps<T>> Iterator for PrimitiveArrayIter<'a, T, A> {
-    type Item = Option<T::Native>;
+impl<'a, T: ArrowPrimitiveType> Iterator for PrimitiveArrayIter<'a, T> {
+    type Item = Option<FormattableInstance<T>>;
 
     fn next(&mut self) -> Option<Self::Item> {
         if self.index >= self.len() {
@@ -438,18 +434,20 @@ impl<'a, T: ArrowPrimitiveType, A: Array + PrimitiveArrayOps<T>> Iterator for Pr
             Some(None)
         }
         else {
-            let value = self.array.value(self.index);
+            let value = T::formattable(self.array.value(self.index));
             self.index += 1;
             Some(Some(value))
         }
     }
 }
 
-impl<'a, T: ArrowPrimitiveType, A: Array + PrimitiveArrayOps<T>> ExactSizeIterator for PrimitiveArrayIter<'a, T, A> {
+impl<'a, T: ArrowPrimitiveType> ExactSizeIterator for PrimitiveArrayIter<'a, T> {
     fn len(&self) -> usize {
         self.array.data_ref().len
     }
 }
+
+impl<'a, T: ArrowPrimitiveType> ArrowArrayIter<T> for PrimitiveArrayIter<'a, T> {}
 
 /// Common operations for primitive types, including numeric types and boolean type.
 pub trait PrimitiveArrayOps<T: ArrowPrimitiveType> {
@@ -658,20 +656,8 @@ where
 }
 
 impl<T: ArrowPrimitiveType> fmt::Debug for PrimitiveArray<T> {
-    default fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        write!(f, "PrimitiveArray<{:?}>\n[\n", T::get_data_type())?;
-        print_long_array_items(self.iter(), f, T::format_item)?;
-        write!(f, "]")
-    }
-}
-
-impl<T: ArrowNumericType + ArrowTemporalType> fmt::Debug for PrimitiveArray<T>
-where
-    i64: std::convert::From<T::Native>,
-{
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         write!(f, "PrimitiveArray<{:?}>\n[\n", T::get_data_type())?;
-        // XXX communicate temporal type info!
         print_long_array_items(self.iter(), f)?;
         write!(f, "]")
     }
@@ -692,14 +678,6 @@ impl PrimitiveArray<BooleanType> {
     // Returns a new primitive array builder
     pub fn builder(capacity: usize) -> BooleanBuilder {
         BooleanBuilder::new(capacity)
-    }
-}
-
-impl fmt::Debug for PrimitiveArray<BooleanType> {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        write!(f, "PrimitiveArray<{:?}>\n[\n", BooleanType::get_data_type())?;
-        print_long_array_items(self.iter(), f, BooleanType::format_item)?;
-        write!(f, "]")
     }
 }
 
@@ -1162,30 +1140,24 @@ impl Array for LargeListArray {
 }
 
 // Helper function for printing potentially long arrays.
-fn print_long_array_items<I, T: ArrowFormat, F>(iter: I, f: &mut fmt::Formatter) -> fmt::Result
-where 
-    I: ExactSizeIterator<Item = Option<T>> + Clone,
-    F: Fn(&T, &mut fmt::Formatter) -> fmt::Result + Copy,
+fn print_long_array_items<T: ArrowFormat, I: ArrowArrayIter<T>>(iter: I, f: &mut fmt::Formatter) -> fmt::Result
 {
     let length = iter.len();
     if length > 20 {
-        print_items(iter.clone().take(10), f)?;
+        print_items::<T, _>(iter.clone().take(10), f)?;
         writeln!(f, "  ...{} elements...,", length - 20)?;
     }
-    print_items(iter.skip(length - 10), f)
+    print_items::<T, _>(iter.skip(length - 10), f)
 }
 
-fn print_items<I, T: ArrowFormat, F>(iter: I, f: &mut fmt::Formatter, printer: F) -> fmt::Result
-where 
-    I: Iterator<Item = Option<T>>,
-    F: Fn(&T, &mut fmt::Formatter) -> fmt::Result + Copy,
+fn print_items<T: ArrowFormat, I: ArrowArrayIter<T>>(iter: I, f: &mut fmt::Formatter) -> fmt::Result
 {
     for elem in iter {
         match elem {
             None => writeln!(f, "  null,")?,
             Some(item) => {
                 write!(f, "  ")?;
-                item.fmt(f)?;
+                T::format_item(&item.data, f)?;
                 writeln!(f, ",")?;
             }
         }
@@ -1322,7 +1294,7 @@ impl Array for FixedSizeListArray {
 impl fmt::Debug for FixedSizeListArray {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         write!(f, "FixedSizeListArray<{}>\n[\n", self.value_length())?;
-        print_long_array_items(self.iter(), f, fmt::Debug::fmt)?;
+        print_long_array_items(self.iter(), f)?;
         write!(f, "]")
     }
 }
@@ -1884,7 +1856,7 @@ impl fmt::Debug for BinaryArray {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         write!(f, "BinaryArray\n[\n")?;
         // XXX appropriate formatter?
-        print_long_array_items(self.iter(), f, fmt::Debug::fmt)?;
+        print_long_array_items(self.iter(), f)?;
         write!(f, "]")
     }
 }
@@ -1892,7 +1864,7 @@ impl fmt::Debug for BinaryArray {
 impl fmt::Debug for LargeBinaryArray {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         write!(f, "LargeBinaryArray\n[\n")?;
-        print_long_array_items(self.iter(), f, fmt::Debug::fmt)?;
+        print_long_array_items(self.iter(), f)?;
         write!(f, "]")
     }
 }
@@ -1900,7 +1872,7 @@ impl fmt::Debug for LargeBinaryArray {
 impl fmt::Debug for StringArray {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         write!(f, "StringArray\n[\n")?;
-        print_long_array_items(self.iter(), f, fmt::Debug::fmt)?;
+        print_long_array_items(self.iter(), f)?;
         write!(f, "]")
     }
 }
@@ -1908,7 +1880,7 @@ impl fmt::Debug for StringArray {
 impl fmt::Debug for LargeStringArray {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         write!(f, "LargeStringArray\n[\n")?;
-        print_long_array_items(self.iter(), f, fmt::Debug::fmt)?;
+        print_long_array_items(self.iter(), f)?;
         write!(f, "]")
     }
 }
@@ -1916,7 +1888,7 @@ impl fmt::Debug for LargeStringArray {
 impl fmt::Debug for FixedSizeBinaryArray {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         write!(f, "FixedSizeBinaryArray<{}>\n[\n", self.value_length())?;
-        print_long_array_items(self.iter(), f, fmt::Debug::fmt)?;
+        print_long_array_items(self.iter(), f)?;
         write!(f, "]")
     }
 }
