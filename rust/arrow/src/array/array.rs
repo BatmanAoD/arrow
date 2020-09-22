@@ -408,8 +408,6 @@ impl<T: ArrowPrimitiveType> PrimitiveArray<T> {
     }
 }
 
-trait ArrowArrayIter<T: ArrowFormat>: ExactSizeIterator<Item = Option<FormattableInstance<T>>> + Clone {}
-
 struct PrimitiveArrayIter<'a, T: ArrowPrimitiveType> {
     array: &'a PrimitiveArray<T>,
     index: usize,
@@ -446,8 +444,6 @@ impl<'a, T: ArrowPrimitiveType> ExactSizeIterator for PrimitiveArrayIter<'a, T> 
         self.array.data_ref().len
     }
 }
-
-impl<'a, T: ArrowPrimitiveType> ArrowArrayIter<T> for PrimitiveArrayIter<'a, T> {}
 
 /// Common operations for primitive types, including numeric types and boolean type.
 pub trait PrimitiveArrayOps<T: ArrowPrimitiveType> {
@@ -1140,7 +1136,9 @@ impl Array for LargeListArray {
 }
 
 // Helper function for printing potentially long arrays.
-fn print_long_array_items<T: ArrowFormat, I: ArrowArrayIter<T>>(iter: I, f: &mut fmt::Formatter) -> fmt::Result
+fn print_long_array_items<T: ArrowFormat, I>(iter: I, f: &mut fmt::Formatter) -> fmt::Result
+where
+    I: ExactSizeIterator<Item = Option<FormattableInstance<T>>> + Clone
 {
     let length = iter.len();
     if length > 20 {
@@ -1150,7 +1148,9 @@ fn print_long_array_items<T: ArrowFormat, I: ArrowArrayIter<T>>(iter: I, f: &mut
     print_items::<T, _>(iter.skip(length - 10), f)
 }
 
-fn print_items<T: ArrowFormat, I: ArrowArrayIter<T>>(iter: I, f: &mut fmt::Formatter) -> fmt::Result
+fn print_items<T: ArrowFormat, I>(iter: I, f: &mut fmt::Formatter) -> fmt::Result
+where
+    I: Iterator<Item = Option<FormattableInstance<T>>>
 {
     for elem in iter {
         match elem {
